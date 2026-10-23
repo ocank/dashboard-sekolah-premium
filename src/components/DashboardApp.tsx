@@ -175,6 +175,7 @@ export default function DashboardApp() {
           ) : null}
         </div>
         <nav className="nav">
+          <div className="nav-label">Menu Utama</div>
           {NAV.map((item) => (
             <button
               key={item.view}
@@ -201,6 +202,7 @@ export default function DashboardApp() {
       <main className="main">
         <TopBar
           title={VIEW_TITLES[view]}
+          badge={`Semester ${semester} • ${academicYear}`}
           notifications={notifications}
           unread={unread}
           onMarkAllRead={markAllRead}
@@ -292,6 +294,7 @@ export default function DashboardApp() {
 
 function TopBar(props: {
   title: string;
+  badge: string;
   notifications: NotificationItem[];
   unread: number;
   onMarkAllRead: () => void;
@@ -342,7 +345,7 @@ function TopBar(props: {
   return (
     <div className="topbar">
       <h1>{props.title}</h1>
-      <span className="badge-preview">MODE PREVIEW</span>
+      <span className="badge-live">{props.badge}</span>
       <div className="spacer" />
       <div className="search-wrap">
         <input
@@ -404,8 +407,8 @@ function TopBar(props: {
           </div>
         )}
       </div>
-      <button className="icon-btn" aria-label="Keluar" title="Keluar" onClick={props.onLogout}>
-        ⎋
+      <button className="btn-logout" title="Keluar dari dashboard" onClick={props.onLogout}>
+        <span aria-hidden="true">⏻</span> Keluar
       </button>
     </div>
   );
@@ -569,7 +572,7 @@ function DashboardView(props: {
               <text x="84" y="82" textAnchor="middle" fontSize="24" fontWeight="800" fill="#22302a">
                 {props.stats.pct}%
               </text>
-              <text x="84" y="102" textAnchor="middle" fontSize="12" fill="#71807a">
+              <text x="84" y="102" textAnchor="middle" fontSize="12" fill="#52645b">
                 Hadir
               </text>
             </svg>
@@ -825,15 +828,59 @@ function StudentsModule(props: {
 
 /* ================= Akun Guru ================= */
 
+function genPassword(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+  let out = "";
+  const buf = new Uint32Array(12);
+  crypto.getRandomValues(buf);
+  buf.forEach((n) => { out += chars[n % chars.length]; });
+  return out;
+}
+
+async function callTeacherAccount(body: Record<string, unknown>): Promise<{ ok?: boolean; existed?: boolean; error?: string }> {
+  const supabase = getSupabase();
+  if (!supabase) return { error: "Supabase belum terhubung." };
+  const { data, error } = await supabase.functions.invoke("create-teacher-account", { body });
+  if (!error) return (data as { ok?: boolean; existed?: boolean }) ?? { ok: true };
+  let msg = "";
+  try {
+    const ctx = (error as { context?: Response }).context;
+    if (ctx && typeof ctx.clone === "function") {
+      const j = (await ctx.clone().json()) as { error?: string };
+      if (j?.error) msg = j.error;
+    }
+  } catch { /* abaikan */ }
+  if (!msg) {
+    const raw = error.message ?? "";
+    msg = /not found|404|failed to fetch|networkerror/i.test(raw)
+      ? "Fitur ini belum aktif di Supabase. Pasang dulu Edge Function “create-teacher-account” (sekali saja, ±5 menit) — panduannya ada di README bagian “Membuat Akun Login Guru dari Aplikasi”."
+      : raw || "Terjadi kesalahan.";
+  }
+  return { error: msg };
+}
+
 function TeachersModule(props: { teachers: Teacher[]; reload: Reload; toast: ToastFn }) {
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<Teacher | null | undefined>(undefined);
-  const [form, setForm] = useState({ name: "", subject: "", status: "Aktif" });
+  const [form, setForm] = useState({ name: "", subject: "", status: "Aktif", email: "" });
+  const [accountFor, setAccountFor] = useState<{ teacher: Teacher; mode: "create" | "reset" } | null>(null);
   const rows = props.teachers.filter((t) => t.name.toLowerCase().includes(search.toLowerCase()));
 
   function open(row?: Teacher) {
     setEditing(row ?? null);
-    setForm(row ? { name: row.name, subject: row.subject, status: row.status } : { name: "", subject: "", status: "Aktif" });
+    setForm(
+      row
+        ? { name: row.name, subject: row.subject, status: row.status, email: row.email ?? "" }
+        : { name: "", subject: "", status: "Aktif", email: "" }
+    );
+  }
+
+  async function unlink(row: Teacher) {
+    if (!window.confirm(`Lepas tautan akun login dari ${row.name}? User login-nya tidak dihapus, hanya tidak lagi terhubung ke data guru ini.`)) return;
+    const res = await callTeacherAccount({ action: "unlink", teacher_id: row.id });
+    if (res.error) { props.toast(res.error); return; }
+    await props.reload();
+    props.toast("Tautan akun login berhasil dilepas.");
   }
 
   async function save() {
@@ -867,12 +914,13 @@ function TeachersModule(props: { teachers: Teacher[]; reload: Reload; toast: Toa
         <button className="btn btn-emerald" onClick={() => open()}>+ Tambah Guru</button>
       </div>
       <p className="muted" style={{ marginTop: 0, fontSize: 13.5 }}>
-        Daftar guru di sini adalah data master. Akun login guru dibuat terpisah di
-        Supabase Authentication oleh admin — lihat README bagian “Menambah Akun Guru”.
+        Kelola data guru sekaligus akun login-nya. Klik <strong>Buat Akun Login</strong> pada
+        baris guru, tentukan email &amp; password awal, lalu berikan ke guru yang bersangkutan —
+        guru masuk lewat halaman login yang sama dengan akun tersebut.
       </p>
       <div style={{ overflowX: "auto" }}>
         <table>
-          <thead><tr><th>Nama Guru</th><th>Mata Pelajaran</th><th>Status</th><th>Aksi</th></tr></thead>
+          <thead><tr><th>Nama Guru</th><th>Mata Pelajaran</th><th>Status</th><th>Akun Login</th><th>Aksi</th></tr></thead>
           <tbody>
             {rows.map((t) => (
               <tr key={t.id}>
@@ -880,14 +928,29 @@ function TeachersModule(props: { teachers: Teacher[]; reload: Reload; toast: Toa
                 <td>{t.subject}</td>
                 <td><span className={`pill-status${t.status === "Aktif" ? "" : " off"}`}>{t.status}</span></td>
                 <td>
+                  {t.auth_user_id ? (
+                    <span className="pill-status" title={t.email}>✓ Aktif{t.email ? ` • ${t.email}` : ""}</span>
+                  ) : (
+                    <span className="pill-status off">Belum ada akun</span>
+                  )}
+                </td>
+                <td>
                   <div className="row-actions">
+                    {t.auth_user_id ? (
+                      <>
+                        <button className="btn btn-small" onClick={() => setAccountFor({ teacher: t, mode: "reset" })}>Reset Password</button>
+                        <button className="btn btn-small" onClick={() => void unlink(t)}>Lepas Tautan</button>
+                      </>
+                    ) : (
+                      <button className="btn btn-small btn-gold" onClick={() => setAccountFor({ teacher: t, mode: "create" })}>Buat Akun Login</button>
+                    )}
                     <button className="btn btn-small" onClick={() => open(t)}>Edit</button>
                     <button className="btn btn-small btn-danger" onClick={() => void remove(t)}>Hapus</button>
                   </div>
                 </td>
               </tr>
             ))}
-            {rows.length === 0 && <tr><td colSpan={4} className="empty">Tidak ada guru yang cocok.</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={5} className="empty">Tidak ada guru yang cocok.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -906,6 +969,9 @@ function TeachersModule(props: { teachers: Teacher[]; reload: Reload; toast: Toa
               </select>
             </label>
           </div>
+          <label>Email (untuk akun login)
+            <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="nama.guru@sekolah.sch.id" />
+          </label>
           <div className="modal-actions">
             <button className="btn" onClick={() => setEditing(undefined)}>Batal</button>
             <button className="btn btn-emerald" onClick={() => void save()}>
@@ -914,7 +980,101 @@ function TeachersModule(props: { teachers: Teacher[]; reload: Reload; toast: Toa
           </div>
         </Modal>
       )}
+      {accountFor && (
+        <TeacherAccountModal
+          teacher={accountFor.teacher}
+          mode={accountFor.mode}
+          onClose={() => setAccountFor(null)}
+          onDone={async (msg) => {
+            setAccountFor(null);
+            await props.reload();
+            props.toast(msg);
+          }}
+        />
+      )}
     </section>
+  );
+}
+
+/* Modal pembuatan akun login guru / reset password (via Edge Function) */
+function TeacherAccountModal(props: {
+  teacher: Teacher;
+  mode: "create" | "reset";
+  onClose: () => void;
+  onDone: (msg: string) => Promise<void>;
+}) {
+  const isCreate = props.mode === "create";
+  const [email, setEmail] = useState(props.teacher.email ?? "");
+  const [password, setPassword] = useState(() => genPassword());
+  const [showPw, setShowPw] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  async function submit() {
+    setErr("");
+    if (isCreate && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setErr("Isi email guru yang valid terlebih dahulu.");
+      return;
+    }
+    if (password.length < 8) {
+      setErr("Password minimal 8 karakter.");
+      return;
+    }
+    setBusy(true);
+    const res = await callTeacherAccount({
+      action: isCreate ? "create" : "reset",
+      teacher_id: props.teacher.id,
+      email: email.trim(),
+      password,
+    });
+    setBusy(false);
+    if (res.error) { setErr(res.error); return; }
+    await props.onDone(
+      isCreate
+        ? res.existed
+          ? `Akun login untuk ${props.teacher.name} ditautkan dari akun yang sudah terdaftar (password tidak berubah — gunakan Reset Password bila perlu menggantinya).`
+          : `Akun login untuk ${props.teacher.name} berhasil dibuat. Berikan email & password ini ke gurunya.`
+        : `Password akun ${props.teacher.name} berhasil direset. Berikan password baru ini ke gurunya.`
+    );
+  }
+
+  return (
+    <Modal title={isCreate ? `Buat Akun Login — ${props.teacher.name}` : `Reset Password — ${props.teacher.name}`} onClose={props.onClose}>
+      {err && <div className="alert-error">{err}</div>}
+      {isCreate && (
+        <label>Email Login Guru
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="nama.guru@sekolah.sch.id" autoComplete="off" />
+        </label>
+      )}
+      <label>{isCreate ? "Password Awal" : "Password Baru"}
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            type={showPw ? "text" : "password"}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="new-password"
+            style={{ flex: 1 }}
+          />
+          <button type="button" className="btn btn-small" onClick={() => setShowPw((v) => !v)}>
+            {showPw ? "Sembunyikan" : "Lihat"}
+          </button>
+          <button type="button" className="btn btn-small" onClick={() => { setPassword(genPassword()); setShowPw(true); }}>
+            Buat Otomatis
+          </button>
+        </div>
+      </label>
+      <p className="muted" style={{ fontSize: 12.5, lineHeight: 1.55 }}>
+        Password ini hanya tampil di sini — <strong>catat dan berikan langsung ke guru yang
+        bersangkutan</strong>, jangan kirim lewat grup. Guru masuk melalui halaman login
+        dengan email &amp; password ini.
+      </p>
+      <div className="modal-actions">
+        <button className="btn" onClick={props.onClose} disabled={busy}>Batal</button>
+        <button className="btn btn-gold" onClick={() => void submit()} disabled={busy}>
+          {busy ? "Memproses…" : isCreate ? "Buat Akun Login" : "Reset Password"}
+        </button>
+      </div>
+    </Modal>
   );
 }
 

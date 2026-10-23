@@ -79,8 +79,9 @@ export default function LoginPage() {
           {loading ? "Memproses…" : "Masuk ke Dashboard"}
         </button>
         <p className="login-note">
-          Akun hanya dibuat oleh admin melalui Supabase Authentication — tidak
-          ada pendaftaran publik, demi keamanan data siswa.
+          Akun hanya dibuat oleh admin — dari menu Akun Guru di dalam dashboard
+          atau melalui Supabase Authentication. Tidak ada pendaftaran publik,
+          demi keamanan data siswa.
         </p>
       </form>
     </main>

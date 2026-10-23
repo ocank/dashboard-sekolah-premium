@@ -87,15 +87,34 @@ Di Supabase buka **Project Settings → API**, catat:
 
 ---
 
-## Menambah Akun Guru
+## Membuat Akun Login Guru dari Aplikasi
 
-1. **Buat akun login**: di Supabase → **Authentication → Users → Add user**,
-   isi email + password guru yang bersangkutan.
-2. **Catat data masternya**: di dashboard → menu **Akun Guru → Tambah Guru**,
-   isi nama dan mata pelajaran guru tersebut.
-3. Guru login memakai email + password dari langkah 1. Semua user yang login
-   saat ini memiliki akses yang sama ke semua menu (belum ada pembagian peran
-   admin vs guru).
+Akun login guru bisa dibuat langsung dari dashboard (menu **Akun Guru →
+Buat Akun Login**, termasuk **Reset Password**). Fitur ini memakai sebuah
+Edge Function Supabase yang perlu dipasang **sekali saja** (±5 menit):
+
+1. **Perbarui database**: di Supabase → **SQL Editor**, jalankan ulang isi
+   `supabase/schema.sql` (aman — file ini idempotent, data tidak hilang).
+   Ini menambahkan kolom `email` dan `auth_user_id` pada tabel `teachers`.
+2. **Pasang Edge Function**: di Supabase → **Edge Functions → Create a new
+   function**, beri nama persis `create-teacher-account`, hapus isi contohnya,
+   lalu tempel seluruh isi file
+   `supabase/functions/create-teacher-account/index.ts` dari repo ini →
+   **Deploy**.
+3. Selesai. Di dashboard → **Akun Guru**, setiap guru yang belum punya akun
+   kini punya tombol **Buat Akun Login**: isi email + password awal
+   (ada tombol *Buat Otomatis*), lalu berikan kredensial itu langsung ke
+   gurunya. Guru masuk lewat halaman login yang sama.
+
+Catatan keamanan: function berjalan dengan service role key yang otomatis
+tersedia di server Supabase — kunci itu tidak pernah masuk ke kode aplikasi,
+browser, atau GitHub. Function juga menolak panggilan dari siapa pun yang
+belum login. Cara lama tetap bisa dipakai (Supabase → Authentication →
+Users → Add user), dan akun yang dibuat dengan cara itu akan **ditautkan
+otomatis** saat admin menekan Buat Akun Login dengan email yang sama.
+
+Semua user yang login saat ini memiliki akses yang sama ke semua menu
+(belum ada pembagian peran admin vs guru).
 
 ## Backup & Ekspor Data
 

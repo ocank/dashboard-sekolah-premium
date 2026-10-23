@@ -30,6 +30,8 @@ export interface Teacher {
   name: string;
   subject: string;
   status: string;
+  email: string;
+  auth_user_id: string | null;
 }
 
 export interface Journal {

@@ -30,7 +30,8 @@
     "target": "ES2017"
   },
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "supabase/functions"
   ],
   "include": [
     "next-env.d.ts",

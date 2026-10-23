@@ -51,6 +51,34 @@ export function SetupScreen() {
   );
 }
 
+export interface SessionUser {
+  id: string;
+  email: string;
+  roleMeta: string | null;
+}
+
+/** Ambil user yang sedang login (id, email, peran dari app_metadata). */
+export function useSessionUser(ready: boolean) {
+  const [user, setUser] = useState<SessionUser | null>(null);
+  useEffect(() => {
+    if (!ready) return;
+    const supabase = getSupabase();
+    if (!supabase) return;
+    let active = true;
+    supabase.auth.getUser().then(({ data }) => {
+      if (!active || !data.user) return;
+      const meta = (data.user.app_metadata ?? {}) as { role?: string };
+      setUser({
+        id: data.user.id,
+        email: data.user.email ?? "",
+        roleMeta: typeof meta.role === "string" ? meta.role : null,
+      });
+    });
+    return () => { active = false; };
+  }, [ready]);
+  return user;
+}
+
 /** Guard sesi: mengarahkan ke /login bila belum masuk. */
 export function useRequireSession() {
   const [state, setState] = useState<"loading" | "ready" | "setup">("loading");

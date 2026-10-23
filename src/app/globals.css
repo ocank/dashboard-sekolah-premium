@@ -230,6 +230,12 @@ td input[type="number"] { width: 76px; padding: 7px 8px; }
 .class-card p { margin: 3px 0; font-size: 13px; color: var(--muted); }
 .class-card .row-actions { margin-top: 12px; }
 .pill-status { display: inline-block; background: var(--emerald-soft); color: var(--emerald); font-size: 11.5px; font-weight: 800; padding: 3px 9px; border-radius: 999px; }
+.role-chip {
+  display: inline-block; font-size: 11px; font-weight: 800; letter-spacing: 0.4px;
+  padding: 3px 10px; border-radius: 999px; background: rgba(255, 255, 255, 0.14);
+  color: #dcebe3; border: 1px solid rgba(255, 255, 255, 0.35);
+}
+.role-chip.admin { background: var(--gold); border-color: var(--gold); color: #38290a; }
 .pill-status.off { background: #f3e2de; color: var(--danger); }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; }
 .form-grid .full { grid-column: 1 / -1; }

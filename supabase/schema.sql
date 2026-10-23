@@ -96,8 +96,9 @@ create table if not exists public.notifications (
 );
 
 -- ---------- Row Level Security ----------
--- Semua tabel: hanya user yang sudah LOGIN (authenticated) yang
--- boleh membaca/menulis. Anon / publik TIDAK bisa membaca data siswa.
+-- Anon / publik TIDAK bisa mengakses apa pun. User login (authenticated)
+-- boleh membaca semua tabel; hak menulis dibedakan per peran
+-- (Admin vs Guru) — lihat fungsi public.is_admin() di bawah.
 
 alter table public.school_settings enable row level security;
 alter table public.classes enable row level security;
@@ -109,17 +110,90 @@ alter table public.att_records enable row level security;
 alter table public.grades enable row level security;
 alter table public.notifications enable row level security;
 
+-- ---------- Pembagian Peran: Admin vs Guru ----------
+-- Admin : akses penuh ke semua tabel & menu.
+-- Guru  : membaca semua data; menulis hanya data kerjanya
+--         (absensi, nilai, jurnal); data master & pengaturan Admin saja.
+-- Penentuan peran (urutan):
+--   1. app_metadata.role pada user Auth ('admin' / 'guru') — diatur
+--      Admin dari menu Akun Guru, atau otomatis 'guru' saat akun dibuat
+--      dari aplikasi.
+--   2. Bila belum diatur: akun yang tertaut ke teachers.auth_user_id
+--      adalah guru; akun lain (dibuat pemilik langsung di Supabase
+--      Authentication) adalah admin — akun pemilik tidak akan terkunci.
+create or replace function public.is_admin()
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select coalesce(
+    nullif(auth.jwt() -> 'app_metadata' ->> 'role', ''),
+    case
+      when exists (select 1 from public.teachers t where t.auth_user_id = auth.uid())
+        then 'guru'
+      else 'admin'
+    end
+  ) = 'admin';
+$$;
+
 do $$
-declare t text;
+declare t text; policy_name text;
 begin
   foreach t in array array[
     'school_settings','classes','students','teachers','journals',
     'att_sessions','att_records','grades','notifications'
   ] loop
-    execute format('drop policy if exists "authenticated full access" on public.%I', t);
+    -- Bersihkan kebijakan lama (semua versi)
+    foreach policy_name in array array[
+      'authenticated full access','read for authenticated',
+      'insert for authenticated','update for authenticated','delete for authenticated',
+      'insert for admin','update for admin','delete for admin'
+    ] loop
+      execute format('drop policy if exists %I on public.%I', policy_name, t);
+    end loop;
+
+    -- Semua user login boleh MEMBACA semua tabel
     execute format(
-      'create policy "authenticated full access" on public.%I
-         for all to authenticated using (true) with check (true)', t);
+      'create policy "read for authenticated" on public.%I
+         for select to authenticated using (true)', t);
+
+    if t in ('journals','att_sessions','att_records','grades') then
+      -- Data kerja guru: semua user login boleh menulis
+      execute format(
+        'create policy "insert for authenticated" on public.%I
+           for insert to authenticated with check (true)', t);
+      execute format(
+        'create policy "update for authenticated" on public.%I
+           for update to authenticated using (true) with check (true)', t);
+      execute format(
+        'create policy "delete for authenticated" on public.%I
+           for delete to authenticated using (true)', t);
+    elsif t = 'notifications' then
+      -- Notifikasi: user login boleh menandai dibaca (update);
+      -- membuat/menghapus notifikasi khusus Admin
+      execute format(
+        'create policy "update for authenticated" on public.%I
+           for update to authenticated using (true) with check (true)', t);
+      execute format(
+        'create policy "insert for admin" on public.%I
+           for insert to authenticated with check (public.is_admin())', t);
+      execute format(
+        'create policy "delete for admin" on public.%I
+           for delete to authenticated using (public.is_admin())', t);
+    else
+      -- Data master & pengaturan: menulis khusus Admin
+      execute format(
+        'create policy "insert for admin" on public.%I
+           for insert to authenticated with check (public.is_admin())', t);
+      execute format(
+        'create policy "update for admin" on public.%I
+           for update to authenticated using (public.is_admin()) with check (public.is_admin())', t);
+      execute format(
+        'create policy "delete for admin" on public.%I
+           for delete to authenticated using (public.is_admin())', t);
+    end if;
   end loop;
 end $$;
 

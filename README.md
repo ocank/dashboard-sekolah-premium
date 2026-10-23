@@ -109,12 +109,36 @@ Edge Function Supabase yang perlu dipasang **sekali saja** (±5 menit):
 Catatan keamanan: function berjalan dengan service role key yang otomatis
 tersedia di server Supabase — kunci itu tidak pernah masuk ke kode aplikasi,
 browser, atau GitHub. Function juga menolak panggilan dari siapa pun yang
-belum login. Cara lama tetap bisa dipakai (Supabase → Authentication →
-Users → Add user), dan akun yang dibuat dengan cara itu akan **ditautkan
-otomatis** saat admin menekan Buat Akun Login dengan email yang sama.
+belum login atau yang bukan Admin. Cara lama tetap bisa dipakai (Supabase →
+Authentication → Users → Add user), dan akun yang dibuat dengan cara itu
+akan **ditautkan otomatis** saat admin menekan Buat Akun Login dengan
+email yang sama.
 
-Semua user yang login saat ini memiliki akses yang sama ke semua menu
-(belum ada pembagian peran admin vs guru).
+## Pembagian Peran: Admin vs Guru
+
+- **Admin** — akses penuh: semua menu, termasuk **Data Kelas**,
+  **Akun Guru**, dan **Data Sekolah**; satu-satunya yang boleh mengubah
+  data master (kelas, siswa, guru) dan pengaturan sekolah.
+- **Guru** — menu **Dashboard**, **Data Siswa** (lihat saja), **Absensi**,
+  **Nilai & Leger**, dan **Jurnal Mengajar** (absensi, nilai, dan jurnal
+  memang pekerjaan harian guru, jadi tetap bisa diisi/diedit).
+
+Pembagian ini ditegakkan di **dua lapis**: tampilan aplikasi menyembunyikan
+menu/aksi yang bukan haknya, dan Row Level Security di database menolak
+tulisan yang tidak sesuai peran (fungsi `public.is_admin()` di
+`supabase/schema.sql`) — jadi bukan sekadar kosmetik tampilan.
+
+Cara peran ditentukan (berurutan):
+
+1. Peran eksplisit pada `app_metadata.role` user Auth. Akun yang dibuat
+   lewat **Buat Akun Login** otomatis berperan `guru`; Admin dapat
+   mengubahnya menjadi `admin` (atau sebaliknya) lewat pilihan **Peran**
+   di kolom Akun Login pada menu Akun Guru — berlaku saat user login
+   berikutnya.
+2. Bila belum diatur: akun yang tertaut ke data guru
+   (`teachers.auth_user_id`) berperan guru; akun lain — termasuk akun
+   pemilik yang dibuat langsung di Supabase Authentication — berperan
+   admin, sehingga akun utama tidak pernah terkunci dari fitur Admin.
 
 ## Backup & Ekspor Data
 

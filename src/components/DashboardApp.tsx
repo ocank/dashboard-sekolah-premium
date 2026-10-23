@@ -15,7 +15,10 @@ import {
   type Student,
   type Teacher,
 } from "@/lib/types";
-import { SetupScreen, useRequireSession } from "@/components/Setup";
+import { SetupScreen, useRequireSession, useSessionUser } from "@/components/Setup";
+
+type Role = "admin" | "guru";
+const GURU_VIEWS: View[] = ["dashboard", "siswa", "absensi", "nilai", "jurnal"];
 
 type View =
   | "dashboard" | "kelas" | "siswa" | "absensi"
@@ -61,6 +64,7 @@ function todayISO(): string { return toISODate(new Date()); }
 
 export default function DashboardApp() {
   const sessionState = useRequireSession();
+  const sessionUser = useSessionUser(sessionState === "ready");
   const [view, setView] = useState<View>("dashboard");
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState("");
@@ -160,14 +164,38 @@ export default function DashboardApp() {
   const academicYear = settings?.academic_year || "Tahun Ajaran Aktif";
   const unread = notifications.filter((n) => !n.is_read).length;
 
+  // ---- Peran pengguna ----
+  // Aturan: peran eksplisit di app_metadata menang; bila belum diatur,
+  // akun yang tertaut ke data guru = guru, akun lain (dibuat pemilik
+  // langsung di Supabase) = admin. Aturan yang sama ditegakkan di RLS.
+  const linkedTeacher = sessionUser
+    ? teachers.find((t) => t.auth_user_id && t.auth_user_id === sessionUser.id) ?? null
+    : null;
+  const role: Role =
+    sessionUser?.roleMeta === "admin" || sessionUser?.roleMeta === "guru"
+      ? sessionUser.roleMeta
+      : linkedTeacher
+        ? "guru"
+        : "admin";
+  const isAdmin = role === "admin";
+  const displayName = !isAdmin && linkedTeacher ? linkedTeacher.name : headName;
+  const displayTitle = !isAdmin && linkedTeacher ? `Guru • ${linkedTeacher.subject || "—"}` : headTitle;
+  const visibleNav = NAV.filter((n) => isAdmin || GURU_VIEWS.includes(n.view));
+  const activeView: View = isAdmin || GURU_VIEWS.includes(view) ? view : "dashboard";
+
   return (
     <div className="shell">
       <aside className="sidebar">
         <div className="profile">
-          <div className="avatar">{headName.charAt(0)}</div>
-          <h3>Hai, {headName}! 👋</h3>
-          <p>{headTitle}</p>
+          <div className="avatar">{displayName.charAt(0)}</div>
+          <h3>Hai, {displayName}! 👋</h3>
+          <p>{displayTitle}</p>
           <p className="online-dot">● Online</p>
+          <p style={{ marginTop: 4 }}>
+            <span className={isAdmin ? "role-chip admin" : "role-chip"}>
+              {isAdmin ? "🛡️ Admin" : "📚 Guru"}
+            </span>
+          </p>
           {settings?.school_name ? (
             <p style={{ marginTop: 6, color: "#f5ecd7", fontWeight: 700 }}>
               {settings.school_name}
@@ -176,10 +204,10 @@ export default function DashboardApp() {
         </div>
         <nav className="nav">
           <div className="nav-label">Menu Utama</div>
-          {NAV.map((item) => (
+          {visibleNav.map((item) => (
             <button
               key={item.view}
-              className={view === item.view ? "active" : ""}
+              className={activeView === item.view ? "active" : ""}
               onClick={() => setView(item.view)}
             >
               <span className="ico">{item.icon}</span> {item.label}
@@ -201,7 +229,7 @@ export default function DashboardApp() {
 
       <main className="main">
         <TopBar
-          title={VIEW_TITLES[view]}
+          title={VIEW_TITLES[activeView]}
           badge={`Semester ${semester} • ${academicYear}`}
           notifications={notifications}
           unread={unread}
@@ -214,19 +242,19 @@ export default function DashboardApp() {
           go={setView}
         />
 
-        {view === "dashboard" && (
+        {activeView === "dashboard" && (
           <DashboardView
             stats={stats}
             sessions={sessions}
             records={records}
-            headName={headName}
+            headName={displayName}
             semester={semester}
             academicYear={academicYear}
             schoolName={settings?.school_name ?? ""}
             go={setView}
           />
         )}
-        {view === "kelas" && (
+        {activeView === "kelas" && (
           <ClassesModule
             classes={classes}
             students={students}
@@ -234,16 +262,17 @@ export default function DashboardApp() {
             toast={showToast}
           />
         )}
-        {view === "siswa" && (
+        {activeView === "siswa" && (
           <StudentsModule
             students={students}
             classes={classes}
             className={className}
             reload={loadAll}
             toast={showToast}
+            readOnly={!isAdmin}
           />
         )}
-        {view === "absensi" && (
+        {activeView === "absensi" && (
           <AttendanceModule
             classes={classes}
             students={students}
@@ -254,7 +283,7 @@ export default function DashboardApp() {
             toast={showToast}
           />
         )}
-        {view === "nilai" && (
+        {activeView === "nilai" && (
           <GradesModule
             classes={classes}
             students={students}
@@ -264,7 +293,7 @@ export default function DashboardApp() {
             toast={showToast}
           />
         )}
-        {view === "jurnal" && (
+        {activeView === "jurnal" && (
           <JournalsModule
             journals={journals}
             classes={classes}
@@ -273,10 +302,10 @@ export default function DashboardApp() {
             toast={showToast}
           />
         )}
-        {view === "guru" && (
+        {activeView === "guru" && (
           <TeachersModule teachers={teachers} reload={loadAll} toast={showToast} />
         )}
-        {view === "sekolah" && (
+        {activeView === "sekolah" && (
           <SchoolSettingsModule
             settings={settings}
             reload={loadAll}
@@ -705,6 +734,7 @@ function ClassesModule(props: {
 function StudentsModule(props: {
   students: Student[]; classes: SchoolClass[];
   className: (id: number | null) => string; reload: Reload; toast: ToastFn;
+  readOnly?: boolean;
 }) {
   const [search, setSearch] = useState("");
   const [classFilter, setClassFilter] = useState<string>("all");
@@ -763,8 +793,16 @@ function StudentsModule(props: {
           <option value="all">Semua Kelas</option>
           {props.classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
-        <button className="btn btn-emerald" onClick={() => open()}>+ Tambah Siswa</button>
+        {!props.readOnly && (
+          <button className="btn btn-emerald" onClick={() => open()}>+ Tambah Siswa</button>
+        )}
       </div>
+      {props.readOnly && (
+        <p className="muted" style={{ marginTop: 0, fontSize: 13.5 }}>
+          Anda masuk sebagai <strong>Guru</strong> — data siswa bersifat lihat saja.
+          Perubahan data siswa dilakukan oleh Admin.
+        </p>
+      )}
       <div style={{ overflowX: "auto" }}>
         <table>
           <thead><tr><th>Nama</th><th>NIS</th><th>Kelas</th><th>Jenis Kelamin</th><th>Status</th><th>Aksi</th></tr></thead>
@@ -777,10 +815,14 @@ function StudentsModule(props: {
                 <td>{s.gender}</td>
                 <td><span className={`pill-status${s.status === "Aktif" ? "" : " off"}`}>{s.status}</span></td>
                 <td>
-                  <div className="row-actions">
-                    <button className="btn btn-small" onClick={() => open(s)}>Edit</button>
-                    <button className="btn btn-small btn-danger" onClick={() => void remove(s)}>Hapus</button>
-                  </div>
+                  {props.readOnly ? (
+                    <span className="muted">—</span>
+                  ) : (
+                    <div className="row-actions">
+                      <button className="btn btn-small" onClick={() => open(s)}>Edit</button>
+                      <button className="btn btn-small btn-danger" onClick={() => void remove(s)}>Hapus</button>
+                    </div>
+                  )}
                 </td>
               </tr>
             ))}
@@ -837,11 +879,11 @@ function genPassword(): string {
   return out;
 }
 
-async function callTeacherAccount(body: Record<string, unknown>): Promise<{ ok?: boolean; existed?: boolean; error?: string }> {
+async function callTeacherAccount(body: Record<string, unknown>): Promise<{ ok?: boolean; existed?: boolean; roles?: Record<string, string>; error?: string }> {
   const supabase = getSupabase();
   if (!supabase) return { error: "Supabase belum terhubung." };
   const { data, error } = await supabase.functions.invoke("create-teacher-account", { body });
-  if (!error) return (data as { ok?: boolean; existed?: boolean }) ?? { ok: true };
+  if (!error) return (data as { ok?: boolean; existed?: boolean; roles?: Record<string, string> }) ?? { ok: true };
   let msg = "";
   try {
     const ctx = (error as { context?: Response }).context;
@@ -852,7 +894,7 @@ async function callTeacherAccount(body: Record<string, unknown>): Promise<{ ok?:
   } catch { /* abaikan */ }
   if (!msg) {
     const raw = error.message ?? "";
-    msg = /not found|404|failed to fetch|networkerror/i.test(raw)
+    msg = /not found|404|failed to fetch|failed to send a request|networkerror/i.test(raw)
       ? "Fitur ini belum aktif di Supabase. Pasang dulu Edge Function “create-teacher-account” (sekali saja, ±5 menit) — panduannya ada di README bagian “Membuat Akun Login Guru dari Aplikasi”."
       : raw || "Terjadi kesalahan.";
   }
@@ -864,7 +906,28 @@ function TeachersModule(props: { teachers: Teacher[]; reload: Reload; toast: Toa
   const [editing, setEditing] = useState<Teacher | null | undefined>(undefined);
   const [form, setForm] = useState({ name: "", subject: "", status: "Aktif", email: "" });
   const [accountFor, setAccountFor] = useState<{ teacher: Teacher; mode: "create" | "reset" } | null>(null);
+  const [roles, setRoles] = useState<Record<string, string>>({});
   const rows = props.teachers.filter((t) => t.name.toLowerCase().includes(search.toLowerCase()));
+
+  useEffect(() => {
+    let active = true;
+    callTeacherAccount({ action: "roles" }).then((res) => {
+      if (active && res.roles) setRoles(res.roles);
+    });
+    return () => { active = false; };
+  }, []);
+
+  async function changeRole(t: Teacher, newRole: string) {
+    if (!t.auth_user_id) return;
+    const res = await callTeacherAccount({ action: "set_role", teacher_id: t.id, role: newRole });
+    if (res.error) { props.toast(res.error); return; }
+    setRoles((prev) => ({ ...prev, [t.auth_user_id as string]: newRole }));
+    props.toast(
+      newRole === "admin"
+        ? `${t.name} sekarang berperan Admin (berlaku saat login berikutnya).`
+        : `${t.name} sekarang berperan Guru (berlaku saat login berikutnya).`
+    );
+  }
 
   function open(row?: Teacher) {
     setEditing(row ?? null);
@@ -929,7 +992,20 @@ function TeachersModule(props: { teachers: Teacher[]; reload: Reload; toast: Toa
                 <td><span className={`pill-status${t.status === "Aktif" ? "" : " off"}`}>{t.status}</span></td>
                 <td>
                   {t.auth_user_id ? (
-                    <span className="pill-status" title={t.email}>✓ Aktif{t.email ? ` • ${t.email}` : ""}</span>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-start" }}>
+                      <span className="pill-status" title={t.email}>✓ Aktif{t.email ? ` • ${t.email}` : ""}</span>
+                      <label style={{ margin: 0, fontSize: 11.5, display: "flex", alignItems: "center", gap: 6 }}>
+                        Peran:
+                        <select
+                          style={{ width: "auto", padding: "4px 8px", fontSize: 12.5 }}
+                          value={roles[t.auth_user_id] ?? "guru"}
+                          onChange={(e) => void changeRole(t, e.target.value)}
+                        >
+                          <option value="guru">Guru</option>
+                          <option value="admin">Admin</option>
+                        </select>
+                      </label>
+                    </div>
                   ) : (
                     <span className="pill-status off">Belum ada akun</span>
                   )}

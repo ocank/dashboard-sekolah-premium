@@ -64,15 +64,50 @@ Deno.serve(async (req: Request) => {
       return json({ error: "Sesi login tidak valid." }, 401);
     }
 
-    // 2) Baca & validasi input.
+    // 2) Baca input dasar.
     const body = await req.json().catch(() => ({}));
     const action = String(body.action ?? "create");
-    const teacherId = Number(body.teacher_id);
-    if (!teacherId) return json({ error: "teacher_id wajib diisi." }, 400);
 
     const admin = createClient(url, serviceKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
+
+    // 3) Pastikan pemanggil adalah ADMIN (aturan peran yang sama
+    //    dengan RLS: app_metadata.role menang; bila belum diatur,
+    //    akun yang tertaut ke data guru = guru, akun lain = admin).
+    const callerMeta = (userData.user.app_metadata ?? {}) as { role?: string };
+    let callerIsAdmin: boolean;
+    if (callerMeta.role === "admin") callerIsAdmin = true;
+    else if (callerMeta.role === "guru") callerIsAdmin = false;
+    else {
+      const { data: link } = await admin
+        .from("teachers")
+        .select("id")
+        .eq("auth_user_id", userData.user.id)
+        .maybeSingle();
+      callerIsAdmin = !link;
+    }
+    if (!callerIsAdmin) {
+      return json({ error: "Hanya Admin yang dapat mengelola akun login." }, 403);
+    }
+
+    // 4) Aksi: daftar peran semua akun guru yang tertaut.
+    if (action === "roles") {
+      const { data: list, error: listErr } = await admin.auth.admin.listUsers({
+        page: 1,
+        perPage: 1000,
+      });
+      if (listErr) return json({ error: listErr.message }, 500);
+      const roles: Record<string, string> = {};
+      for (const u of list.users as Array<{ id: string; app_metadata?: { role?: string } }>) {
+        roles[u.id] = u.app_metadata?.role === "admin" ? "admin" : "guru";
+      }
+      return json({ ok: true, roles });
+    }
+
+    // 5) Aksi lain membutuhkan teacher_id yang valid.
+    const teacherId = Number(body.teacher_id);
+    if (!teacherId) return json({ error: "teacher_id wajib diisi." }, 400);
 
     const { data: teacher, error: tErr } = await admin
       .from("teachers")
@@ -82,7 +117,24 @@ Deno.serve(async (req: Request) => {
     if (tErr) return json({ error: tErr.message }, 500);
     if (!teacher) return json({ error: "Data guru tidak ditemukan." }, 404);
 
-    // 3) Aksi: lepas tautan akun (user Auth TIDAK dihapus).
+    // 6) Aksi: atur peran akun yang tertaut (guru / admin).
+    if (action === "set_role") {
+      const newRole = String(body.role ?? "");
+      if (newRole !== "admin" && newRole !== "guru") {
+        return json({ error: "Peran harus 'admin' atau 'guru'." }, 400);
+      }
+      if (!teacher.auth_user_id) {
+        return json({ error: "Guru ini belum punya akun login." }, 400);
+      }
+      const { error } = await admin.auth.admin.updateUserById(
+        teacher.auth_user_id,
+        { app_metadata: { role: newRole } }
+      );
+      if (error) return json({ error: error.message }, 500);
+      return json({ ok: true, action: "set_role", role: newRole });
+    }
+
+    // 7) Aksi: lepas tautan akun (user Auth TIDAK dihapus).
     if (action === "unlink") {
       const { error } = await admin
         .from("teachers")
@@ -97,7 +149,7 @@ Deno.serve(async (req: Request) => {
       return json({ error: "Password minimal 8 karakter." }, 400);
     }
 
-    // 4) Aksi: reset password akun yang sudah tertaut.
+    // 8) Aksi: reset password akun yang sudah tertaut.
     if (action === "reset") {
       if (!teacher.auth_user_id) {
         return json({ error: "Guru ini belum punya akun login." }, 400);
@@ -110,7 +162,7 @@ Deno.serve(async (req: Request) => {
       return json({ ok: true, action: "reset" });
     }
 
-    // 5) Aksi: buat akun (atau tautkan akun yang sudah ada).
+    // 9) Aksi: buat akun (atau tautkan akun yang sudah ada).
     if (action !== "create") {
       return json({ error: "Action tidak dikenal." }, 400);
     }
@@ -135,6 +187,7 @@ Deno.serve(async (req: Request) => {
         password,
         email_confirm: true,
         user_metadata: { name: teacher.name, role: "guru" },
+        app_metadata: { role: "guru" },
       });
 
     if (createErr) {

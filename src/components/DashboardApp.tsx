@@ -18,11 +18,11 @@ import {
 import { SetupScreen, useRequireSession, useSessionUser } from "@/components/Setup";
 
 type Role = "admin" | "guru";
-const GURU_VIEWS: View[] = ["dashboard", "siswa", "absensi", "nilai", "jurnal"];
+const GURU_VIEWS: View[] = ["dashboard", "siswa", "absensi", "nilai", "jurnal", "laporan"];
 
 type View =
   | "dashboard" | "kelas" | "siswa" | "absensi"
-  | "nilai" | "jurnal" | "guru" | "sekolah";
+  | "nilai" | "jurnal" | "guru" | "sekolah" | "laporan";
 
 type Status = "H" | "S" | "I" | "A";
 
@@ -35,6 +35,7 @@ const VIEW_TITLES: Record<View, string> = {
   jurnal: "Jurnal Mengajar",
   guru: "Akun Guru",
   sekolah: "Data Sekolah",
+  laporan: "Laporan Semester",
 };
 
 const NAV: { view: View; icon: string; label: string }[] = [
@@ -44,6 +45,7 @@ const NAV: { view: View; icon: string; label: string }[] = [
   { view: "absensi", icon: "🗓️", label: "Absensi Siswa" },
   { view: "nilai", icon: "📊", label: "Nilai & Leger" },
   { view: "jurnal", icon: "📖", label: "Jurnal Mengajar" },
+  { view: "laporan", icon: "🖨️", label: "Laporan Semester" },
   { view: "guru", icon: "👥", label: "Akun Guru" },
   { view: "sekolah", icon: "🏫", label: "Data Sekolah" },
 ];
@@ -70,6 +72,8 @@ export default function DashboardApp() {
   const [toast, setToast] = useState("");
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const [myPhoto, setMyPhoto] = useState("");
+  const [photoOpen, setPhotoOpen] = useState(false);
   const [settings, setSettings] = useState<SchoolSettings | null>(null);
   const [classes, setClasses] = useState<SchoolClass[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
@@ -116,6 +120,22 @@ export default function DashboardApp() {
     if (sessionState === "ready") void loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionState]);
+
+  useEffect(() => {
+    if (!sessionUser) return;
+    const supabase = getSupabase();
+    if (!supabase) return;
+    let active = true;
+    supabase
+      .from("profiles")
+      .select("photo")
+      .eq("user_id", sessionUser.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (active && data) setMyPhoto((data as { photo: string }).photo ?? "");
+      });
+    return () => { active = false; };
+  }, [sessionUser]);
 
   const className = (id: number | null) =>
     classes.find((c) => c.id === id)?.name ?? "—";
@@ -187,7 +207,21 @@ export default function DashboardApp() {
     <div className="shell">
       <aside className="sidebar">
         <div className="profile">
-          <div className="avatar">{displayName.charAt(0)}</div>
+          <button
+            className="avatar-btn"
+            title="Ganti foto profil"
+            onClick={() => setPhotoOpen(true)}
+          >
+            <span className="avatar">
+              {myPhoto ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={myPhoto} alt={`Foto profil ${displayName}`} />
+              ) : (
+                displayName.charAt(0)
+              )}
+            </span>
+          </button>
+          <div className="avatar-hint">Klik foto untuk mengganti</div>
           <h3>Hai, {displayName}! 👋</h3>
           <p>{displayTitle}</p>
           <p className="online-dot">● Online</p>
@@ -302,6 +336,20 @@ export default function DashboardApp() {
             toast={showToast}
           />
         )}
+        {activeView === "laporan" && (
+          <ReportModule
+            students={students}
+            classes={classes}
+            grades={grades}
+            records={records}
+            className={className}
+            schoolName={settings?.school_name ?? ""}
+            schoolAddress={settings?.address ?? ""}
+            headName={headName}
+            defaultSemester={semester}
+            defaultYear={academicYear}
+          />
+        )}
         {activeView === "guru" && (
           <TeachersModule teachers={teachers} reload={loadAll} toast={showToast} />
         )}
@@ -315,7 +363,127 @@ export default function DashboardApp() {
       </main>
 
       {toast && <div className="toast">{toast}</div>}
+      {photoOpen && sessionUser && (
+        <PhotoProfileModal
+          userId={sessionUser.id}
+          name={displayName}
+          current={myPhoto}
+          onClose={() => setPhotoOpen(false)}
+          onSaved={(photo) => {
+            setMyPhoto(photo);
+            setPhotoOpen(false);
+            showToast(photo ? "Foto profil berhasil diperbarui." : "Foto profil dihapus.");
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+/* ================= Foto Profil Akun ================= */
+
+function fileToSquareDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const size = 256;
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) { URL.revokeObjectURL(url); reject(new Error("Canvas tidak tersedia.")); return; }
+      const side = Math.min(img.naturalWidth, img.naturalHeight);
+      const sx = (img.naturalWidth - side) / 2;
+      const sy = (img.naturalHeight - side) / 2;
+      ctx.drawImage(img, sx, sy, side, side, 0, 0, size, size);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL("image/jpeg", 0.85));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("File gambar tidak terbaca.")); };
+    img.src = url;
+  });
+}
+
+function PhotoProfileModal(props: {
+  userId: string;
+  name: string;
+  current: string;
+  onClose: () => void;
+  onSaved: (photo: string) => void;
+}) {
+  const [preview, setPreview] = useState(props.current);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setErr("");
+    if (!file.type.startsWith("image/")) { setErr("Pilih file gambar (JPG/PNG)."); return; }
+    if (file.size > 8 * 1024 * 1024) { setErr("Ukuran foto maksimal 8 MB."); return; }
+    try {
+      setPreview(await fileToSquareDataUrl(file));
+    } catch (er) {
+      setErr(er instanceof Error ? er.message : "Gagal memproses foto.");
+    }
+  }
+
+  async function save(photo: string) {
+    const supabase = getSupabase();
+    if (!supabase) return;
+    setErr("");
+    setBusy(true);
+    const { error } = await supabase
+      .from("profiles")
+      .upsert(
+        { user_id: props.userId, photo, updated_at: new Date().toISOString() },
+        { onConflict: "user_id" }
+      );
+    setBusy(false);
+    if (error) {
+      setErr(
+        /profiles/i.test(error.message)
+          ? "Tabel foto profil belum ada di database. Jalankan ulang supabase/schema.sql di SQL Editor Supabase, lalu coba lagi."
+          : error.message
+      );
+      return;
+    }
+    props.onSaved(photo);
+  }
+
+  return (
+    <Modal title="Foto Profil Akun" onClose={props.onClose}>
+      {err && <div className="alert-error">{err}</div>}
+      <div style={{ textAlign: "center", marginBottom: 14 }}>
+        <span className="avatar" style={{ width: 110, height: 110, fontSize: 42, margin: "0 auto" }}>
+          {preview ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={preview} alt={`Foto profil ${props.name}`} />
+          ) : (
+            props.name.charAt(0)
+          )}
+        </span>
+        <p className="muted" style={{ fontSize: 12.5, margin: "8px 0 0" }}>
+          Foto otomatis dipotong persegi &amp; diperkecil (256px) agar ringan.
+        </p>
+      </div>
+      <label>Upload Foto Baru
+        <input type="file" accept="image/*" onChange={(e) => void onFile(e)} />
+      </label>
+      <div className="modal-actions">
+        {props.current && (
+          <button className="btn btn-danger" onClick={() => void save("")} disabled={busy}>
+            Hapus Foto
+          </button>
+        )}
+        <span style={{ flex: 1 }} />
+        <button className="btn" onClick={props.onClose} disabled={busy}>Batal</button>
+        <button className="btn btn-emerald" onClick={() => void save(preview)} disabled={busy || preview === props.current}>
+          {busy ? "Menyimpan…" : "Simpan Foto"}
+        </button>
+      </div>
+    </Modal>
   );
 }
 
@@ -739,6 +907,7 @@ function StudentsModule(props: {
   const [search, setSearch] = useState("");
   const [classFilter, setClassFilter] = useState<string>("all");
   const [editing, setEditing] = useState<Student | null | undefined>(undefined);
+  const [importOpen, setImportOpen] = useState(false);
   const [form, setForm] = useState({ name: "", nis: "", class_id: "", gender: "Laki-laki", status: "Aktif" });
 
   const rows = props.students.filter((s) => {
@@ -794,7 +963,10 @@ function StudentsModule(props: {
           {props.classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
         {!props.readOnly && (
-          <button className="btn btn-emerald" onClick={() => open()}>+ Tambah Siswa</button>
+          <>
+            <button className="btn" onClick={() => setImportOpen(true)}>📥 Impor Dapodik</button>
+            <button className="btn btn-emerald" onClick={() => open()}>+ Tambah Siswa</button>
+          </>
         )}
       </div>
       {props.readOnly && (
@@ -864,7 +1036,197 @@ function StudentsModule(props: {
           </div>
         </Modal>
       )}
+      {importOpen && (
+        <ImportDapodikModal
+          classes={props.classes}
+          students={props.students}
+          onClose={() => setImportOpen(false)}
+          onDone={async (msg) => {
+            setImportOpen(false);
+            await props.reload();
+            props.toast(msg);
+          }}
+        />
+      )}
     </section>
+  );
+}
+
+/* ================= Impor Siswa dari Dapodik ================= */
+
+interface DapoRow {
+  name: string;
+  nis: string;
+  gender: string;
+  dup: boolean;
+  noName: boolean;
+}
+
+function cellText(v: unknown): string {
+  if (v === null || v === undefined) return "";
+  if (typeof v === "number") return String(Math.trunc(v));
+  return String(v).trim();
+}
+
+function ImportDapodikModal(props: {
+  classes: SchoolClass[];
+  students: Student[];
+  onClose: () => void;
+  onDone: (msg: string) => Promise<void>;
+}) {
+  const [rows, setRows] = useState<DapoRow[] | null>(null);
+  const [fileName, setFileName] = useState("");
+  const [rombel, setRombel] = useState("");
+  const [target, setTarget] = useState<string>("rombel");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setErr("");
+    setFileName(file.name);
+    try {
+      const XLSX = await import("xlsx");
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf);
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: "" });
+      if (!raw.length) { setErr("File kosong atau formatnya tidak terbaca."); return; }
+
+      const keys = Object.keys(raw[0]).map((k) => k.toLowerCase().trim());
+      const findCol = (cands: string[]) => {
+        const hit = keys.find((k) => cands.some((c) => k === c || k.includes(c)));
+        return hit ? Object.keys(raw[0]).find((k) => k.toLowerCase().trim() === hit) ?? null : null;
+      };
+      const colName = findCol(["nama siswa", "nama peserta", "nama"]);
+      const colNipd = findCol(["nipd", "nis"]);
+      const colNisn = findCol(["nisn"]);
+      const colJk = findCol(["jk", "jenis kelamin"]);
+      const colRombel = findCol(["rombel saat ini", "rombel", "kelas"]);
+      if (!colName) { setErr("Kolom Nama tidak ditemukan. Pastikan file adalah ekspor peserta didik Dapodik."); return; }
+
+      const existingNis = new Set(props.students.map((s) => s.nis).filter(Boolean));
+      const seen = new Set<string>();
+      let rombelName = "";
+      const parsed: DapoRow[] = raw.map((r) => {
+        const name = cellText(r[colName]);
+        const nis = (colNipd ? cellText(r[colNipd]) : "") || (colNisn ? cellText(r[colNisn]) : "");
+        const jkRaw = colJk ? cellText(r[colJk]).toUpperCase() : "";
+        const gender = jkRaw.startsWith("P") || jkRaw.includes("PEREMPUAN") ? "Perempuan" : "Laki-laki";
+        if (colRombel && !rombelName) rombelName = cellText(r[colRombel]);
+        let dup = false;
+        if (nis) {
+          if (existingNis.has(nis) || seen.has(nis)) dup = true;
+          seen.add(nis);
+        }
+        return { name, nis, gender, dup, noName: !name };
+      });
+      setRows(parsed);
+      setRombel(rombelName);
+      setTarget(rombelName ? "rombel" : props.classes[0] ? String(props.classes[0].id) : "none");
+    } catch {
+      setErr("Gagal membaca file. Gunakan file .xlsx hasil ekspor Dapodik.");
+    }
+  }
+
+  const validRows = (rows ?? []).filter((r) => !r.dup && !r.noName);
+  const dupCount = (rows ?? []).filter((r) => r.dup).length;
+  const noNameCount = (rows ?? []).filter((r) => r.noName).length;
+
+  async function submit() {
+    const supabase = getSupabase();
+    if (!supabase) return;
+    setErr("");
+    setBusy(true);
+    try {
+      let classId: number | null = null;
+      if (target === "rombel") {
+        const existing = props.classes.find(
+          (c) => c.name.toLowerCase() === rombel.toLowerCase()
+        );
+        if (existing) {
+          classId = existing.id;
+        } else {
+          const { data, error } = await supabase
+            .from("classes")
+            .insert({ name: rombel, room: "", homeroom_teacher: "", capacity: 32 })
+            .select("id")
+            .single();
+          if (error) throw new Error("Gagal membuat kelas dari rombel file.");
+          classId = (data as { id: number }).id;
+        }
+      } else if (target !== "none") {
+        classId = Number(target);
+      }
+      const payload = validRows.map((r) => ({
+        name: r.name, nis: r.nis, gender: r.gender, status: "Aktif", class_id: classId,
+      }));
+      const { error } = await supabase.from("students").insert(payload);
+      if (error) throw new Error(error.message);
+      await props.onDone(
+        `Impor selesai: ${payload.length} siswa ditambahkan${dupCount ? `, ${dupCount} dilewati (NIS duplikat)` : ""}${noNameCount ? `, ${noNameCount} dilewati (tanpa nama)` : ""}.`
+      );
+    } catch (e) {
+      setBusy(false);
+      setErr(e instanceof Error ? e.message : "Impor gagal.");
+    }
+  }
+
+  return (
+    <Modal title="Impor Siswa dari Dapodik" onClose={props.onClose}>
+      {err && <div className="alert-error">{err}</div>}
+      <label>File Ekspor Dapodik (.xlsx)
+        <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => void onFile(e)} />
+      </label>
+      <p className="muted" style={{ fontSize: 12.5, lineHeight: 1.55, marginTop: -4 }}>
+        Yang diambil hanya <strong>Nama</strong>, <strong>NIS</strong> (dari NIPD, cadangan
+        NISN), <strong>Jenis Kelamin</strong>, dan <strong>Rombel</strong>. Data pribadi lain
+        di file (NIK, alamat, orang tua) <strong>tidak</strong> ikut disimpan.
+      </p>
+      {rows && (
+        <>
+          <div className="summary-bar">
+            <span>📄 {fileName}</span>
+            <span>Total: {rows.length}</span>
+            <span>Siap impor: {validRows.length}</span>
+            {dupCount > 0 && <span>Duplikat NIS: {dupCount}</span>}
+            {noNameCount > 0 && <span>Tanpa nama: {noNameCount}</span>}
+          </div>
+          <label>Masukkan ke Kelas
+            <select value={target} onChange={(e) => setTarget(e.target.value)}>
+              {rombel && <option value="rombel">Buat / pakai kelas dari rombel file: “{rombel}”</option>}
+              {props.classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              <option value="none">— Tanpa kelas —</option>
+            </select>
+          </label>
+          <div style={{ overflowX: "auto", maxHeight: 240, overflowY: "auto", marginBottom: 10 }}>
+            <table>
+              <thead><tr><th>Nama</th><th>NIS</th><th>JK</th><th>Status</th></tr></thead>
+              <tbody>
+                {rows.slice(0, 8).map((r, i) => (
+                  <tr key={i}>
+                    <td>{r.name || "—"}</td>
+                    <td>{r.nis || "—"}</td>
+                    <td>{r.gender === "Perempuan" ? "P" : "L"}</td>
+                    <td>{r.noName ? "⚠️ Tanpa nama" : r.dup ? "⏭️ Duplikat" : "✅ Siap"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {rows.length > 8 && (
+              <p className="muted" style={{ fontSize: 12.5 }}>…dan {rows.length - 8} baris lainnya.</p>
+            )}
+          </div>
+        </>
+      )}
+      <div className="modal-actions">
+        <button className="btn" onClick={props.onClose} disabled={busy}>Batal</button>
+        <button className="btn btn-emerald" onClick={() => void submit()} disabled={busy || !rows || validRows.length === 0}>
+          {busy ? "Mengimpor…" : `Impor ${validRows.length} Siswa`}
+        </button>
+      </div>
+    </Modal>
   );
 }
 
@@ -1151,6 +1513,241 @@ function TeacherAccountModal(props: {
         </button>
       </div>
     </Modal>
+  );
+}
+
+/* ================= Laporan Semester (Rapor) ================= */
+
+function autoCatatan(avg: number | null, hadirPct: number | null): string {
+  if (avg === null) return "Belum ada nilai yang tercatat untuk semester ini.";
+  let text: string;
+  if (avg >= 90) text = "Ananda menunjukkan prestasi belajar yang sangat baik dan konsisten. Pertahankan semangat belajarnya.";
+  else if (avg >= 80) text = "Ananda menunjukkan prestasi belajar yang baik. Terus tingkatkan kedisiplinan dan semangat belajarnya.";
+  else if (avg >= 70) text = "Ananda menunjukkan prestasi belajar yang cukup. Perlu meningkatkan fokus dan ketekunan dalam belajar.";
+  else if (avg >= 60) text = "Ananda perlu bimbingan dan pendampingan belajar yang lebih intensif agar hasil belajarnya meningkat.";
+  else text = "Ananda memerlukan perhatian dan pendampingan khusus. Mohon kerja sama orang tua/wali untuk memantau kegiatan belajar di rumah.";
+  if (hadirPct !== null && hadirPct < 85) {
+    text += " Kehadiran Ananda perlu ditingkatkan agar tidak tertinggal materi pelajaran.";
+  }
+  return text;
+}
+
+function ReportModule(props: {
+  students: Student[]; classes: SchoolClass[]; grades: Grade[]; records: AttRecord[];
+  className: (id: number | null) => string;
+  schoolName: string; schoolAddress: string; headName: string;
+  defaultSemester: string; defaultYear: string;
+}) {
+  const [classId, setClassId] = useState("");
+  const [mode, setMode] = useState<"satu" | "semua">("satu");
+  const [studentId, setStudentId] = useState("");
+  const [semester, setSemester] = useState(props.defaultSemester);
+  const [year, setYear] = useState(props.defaultYear);
+  const [note, setNote] = useState("");
+
+  const activeClass = props.classes.find((c) => String(c.id) === classId) ?? props.classes[0];
+  const classStudents = useMemo(
+    () =>
+      (activeClass ? props.students.filter((s) => s.class_id === activeClass.id) : [])
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [props.students, activeClass]
+  );
+  const selected =
+    classStudents.find((s) => String(s.id) === studentId) ?? classStudents[0];
+
+  const subjects = useMemo(() => {
+    const ids = new Set(classStudents.map((s) => s.id));
+    const found = new Set(props.grades.filter((g) => ids.has(g.student_id)).map((g) => g.subject));
+    const ordered = DEFAULT_SUBJECTS.filter((s) => found.has(s));
+    const rest = [...found].filter((s) => !DEFAULT_SUBJECTS.includes(s)).sort();
+    return [...ordered, ...rest];
+  }, [props.grades, classStudents]);
+
+  const scoreOf = (sid: number, subject: string): number | null =>
+    props.grades.find((g) => g.student_id === sid && g.subject === subject)?.score ?? null;
+
+  const avgOf = (sid: number): number | null => {
+    const vals = subjects
+      .map((sub) => scoreOf(sid, sub))
+      .filter((v): v is number => v !== null);
+    if (!vals.length) return null;
+    return Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10;
+  };
+
+  const countsOf = (sid: number) => {
+    const recs = props.records.filter((r) => r.student_id === sid);
+    const c: Record<Status, number> = { H: 0, S: 0, I: 0, A: 0 };
+    recs.forEach((r) => { c[r.status] += 1; });
+    const total = recs.length;
+    return { ...c, total, pct: total ? Math.round((c.H / total) * 100) : null as number | null };
+  };
+
+  const ranked = useMemo(() => {
+    return classStudents
+      .map((s) => ({ id: s.id, avg: avgOf(s.id) }))
+      .filter((r) => r.avg !== null)
+      .sort((a, b) => (b.avg as number) - (a.avg as number));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [classStudents, subjects, props.grades]);
+  const rankOf = (sid: number): number | null => {
+    const i = ranked.findIndex((r) => r.id === sid);
+    return i >= 0 ? i + 1 : null;
+  };
+
+  const docs = mode === "semua" ? classStudents : selected ? [selected] : [];
+  const printDate = new Date().toLocaleDateString("id-ID", {
+    day: "numeric", month: "long", year: "numeric",
+  });
+
+  return (
+    <section className="module">
+      <div className="module-head no-print">
+        <h2>Laporan Semester</h2>
+        <div className="spacer" />
+        <button className="btn btn-gold" onClick={() => window.print()} disabled={!docs.length}>
+          🖨️ Cetak / Simpan PDF
+        </button>
+      </div>
+
+      <div className="report-controls no-print">
+        <label>Kelas
+          <select
+            value={activeClass ? String(activeClass.id) : ""}
+            onChange={(e) => { setClassId(e.target.value); setStudentId(""); }}
+          >
+            {props.classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </label>
+        <label>Mode
+          <select value={mode} onChange={(e) => setMode(e.target.value as "satu" | "semua")}>
+            <option value="satu">Satu Siswa</option>
+            <option value="semua">Semua Siswa di Kelas</option>
+          </select>
+        </label>
+        {mode === "satu" && (
+          <label>Siswa
+            <select value={selected ? String(selected.id) : ""} onChange={(e) => setStudentId(e.target.value)}>
+              {classStudents.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </label>
+        )}
+        <label>Semester
+          <select value={semester} onChange={(e) => setSemester(e.target.value)}>
+            <option>Ganjil</option>
+            <option>Genap</option>
+          </select>
+        </label>
+        <label>Tahun Ajaran
+          <input value={year} onChange={(e) => setYear(e.target.value)} placeholder="2026/2027" />
+        </label>
+      </div>
+      <label className="no-print" style={{ maxWidth: 720 }}>
+        Catatan Wali Kelas (kosongkan untuk catatan otomatis berdasarkan nilai &amp; kehadiran)
+        <textarea
+          rows={2}
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Tulis catatan khusus… atau kosongkan untuk catatan otomatis"
+        />
+      </label>
+      <p className="muted no-print" style={{ fontSize: 13, marginTop: 0 }}>
+        Pratinjau di bawah persis seperti hasil cetak. Pada dialog cetak browser,
+        pilih <strong>Simpan sebagai PDF</strong> bila ingin file PDF. Rekap kehadiran
+        dihitung dari seluruh sesi absensi yang tercatat untuk siswa.
+      </p>
+
+      <div id="print-area">
+        {docs.length === 0 && (
+          <div className="empty">Belum ada siswa pada kelas ini.</div>
+        )}
+        {docs.map((s) => {
+          const counts = countsOf(s.id);
+          const avg = avgOf(s.id);
+          return (
+            <div className="report-doc" key={s.id}>
+              <div className="report-head">
+                <div className="report-school">{props.schoolName || "Nama Sekolah"}</div>
+                {props.schoolAddress ? <div className="report-addr">{props.schoolAddress}</div> : null}
+                <div className="report-line" />
+                <div className="report-title">LAPORAN HASIL BELAJAR SISWA</div>
+                <div className="report-sub">Semester {semester} • Tahun Ajaran {year}</div>
+              </div>
+
+              <div className="report-meta">
+                <div><span>Nama Siswa</span><strong>{s.name}</strong></div>
+                <div><span>NIS</span><strong>{s.nis || "—"}</strong></div>
+                <div><span>Kelas</span><strong>{props.className(s.class_id)}</strong></div>
+                <div><span>Wali Kelas</span><strong>{activeClass?.homeroom_teacher || "—"}</strong></div>
+              </div>
+
+              <div className="report-section">A. Nilai Mata Pelajaran</div>
+              <table className="report-table">
+                <thead>
+                  <tr><th style={{ width: 42 }}>No</th><th>Mata Pelajaran</th><th style={{ width: 90 }}>Nilai</th><th style={{ width: 190 }}>Predikat</th></tr>
+                </thead>
+                <tbody>
+                  {subjects.map((sub, i) => {
+                    const v = scoreOf(s.id, sub);
+                    return (
+                      <tr key={sub}>
+                        <td className="c">{i + 1}</td>
+                        <td>{sub}</td>
+                        <td className="c">{v === null ? "—" : v}</td>
+                        <td>{v === null ? "Belum dinilai" : predikat(v)}</td>
+                      </tr>
+                    );
+                  })}
+                  {subjects.length === 0 && (
+                    <tr><td colSpan={4} className="c">Belum ada nilai tercatat untuk kelas ini.</td></tr>
+                  )}
+                </tbody>
+              </table>
+              <div className="report-summary">
+                <div>Rata-rata Nilai: <strong>{avg === null ? "—" : avg}</strong></div>
+                <div>Peringkat di Kelas: <strong>{rankOf(s.id) === null ? "—" : `${rankOf(s.id)} dari ${ranked.length} siswa`}</strong></div>
+                <div>Predikat Umum: <strong>{avg === null ? "—" : predikat(avg)}</strong></div>
+              </div>
+
+              <div className="report-section">B. Rekap Kehadiran</div>
+              <table className="report-table">
+                <thead>
+                  <tr><th>Hadir</th><th>Sakit</th><th>Izin</th><th>Alfa</th><th>Total Sesi</th><th>% Kehadiran</th></tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td className="c">{counts.H}</td>
+                    <td className="c">{counts.S}</td>
+                    <td className="c">{counts.I}</td>
+                    <td className="c">{counts.A}</td>
+                    <td className="c">{counts.total}</td>
+                    <td className="c">{counts.pct === null ? "—" : `${counts.pct}%`}</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div className="report-section">C. Catatan Wali Kelas</div>
+              <p className="report-note">{note.trim() ? note : autoCatatan(avg, counts.pct)}</p>
+
+              <div className="report-sign">
+                <div className="sign-block">
+                  <div>Mengetahui,</div>
+                  <div>Kepala Sekolah</div>
+                  <div className="sign-space" />
+                  <div className="sign-name">{props.headName}</div>
+                </div>
+                <div className="sign-block">
+                  <div>{printDate}</div>
+                  <div>Wali Kelas {props.className(s.class_id)}</div>
+                  <div className="sign-space" />
+                  <div className="sign-name">{activeClass?.homeroom_teacher || "—"}</div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 

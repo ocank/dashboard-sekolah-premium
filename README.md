@@ -140,6 +140,37 @@ Cara peran ditentukan (berurutan):
    pemilik yang dibuat langsung di Supabase Authentication — berperan
    admin, sehingga akun utama tidak pernah terkunci dari fitur Admin.
 
+## Laporan Semester (Rapor)
+
+Menu **Laporan Semester** menyusun rapor per siswa dari data yang sudah
+ada: nilai per mata pelajaran + predikat, rata-rata, peringkat di kelas,
+rekap kehadiran (H/S/I/A + persentase), dan catatan wali kelas (otomatis
+berdasarkan nilai & kehadiran, atau ditulis sendiri). Pilih **Kelas**,
+mode **Satu Siswa** atau **Semua Siswa di Kelas** (satu halaman A4 per
+siswa), semester, dan tahun ajaran, lalu klik **Cetak / Simpan PDF** —
+dialog cetak browser menghasilkan kertas A4 bersih tanpa sidebar, dan
+bisa disimpan sebagai PDF. Menu ini tersedia untuk Admin dan Guru.
+
+## Impor Siswa dari Dapodik
+
+Di menu **Data Siswa → Impor Dapodik** (Admin saja), unggah file `.xlsx`
+ekspor peserta didik Dapodik. Yang diambil hanya **Nama**, **NIS** (dari
+kolom NIPD, cadangan NISN), **Jenis Kelamin** (L/P), dan **Rombel Saat
+Ini** — data pribadi lain (NIK, alamat, data orang tua) tidak disimpan.
+Sebelum impor ada pratinjau: siswa dengan NIS yang sudah terdaftar atau
+duplikat di dalam file otomatis dilewati. Kelas tujuan bisa dipilih, atau
+dibuat otomatis dari nama rombel di file (mis. "Kelas 1D").
+
+## Foto Profil Akun
+
+Klik foto/inisial di sidebar untuk mengganti foto profil akun yang sedang
+login (Admin maupun Guru). Foto dipotong persegi dan diperkecil menjadi
+256px JPEG di browser, lalu disimpan di tabel `profiles`
+(kolom `photo`, satu baris per user). Kebijakan RLS-nya: semua user login
+boleh melihat, tetapi setiap user hanya bisa mengubah fotonya sendiri.
+Karena itu **tidak perlu Supabase Storage** — cukup jalankan ulang
+`supabase/schema.sql` (idempotent) untuk membuat tabelnya.
+
 ## Backup & Ekspor Data
 
 - **Leger nilai** bisa diekspor kapan saja dari menu **Nilai & Leger →

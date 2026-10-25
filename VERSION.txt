@@ -1,0 +1,4 @@
+dashboard-sekolah-premium — build 2026-10-24
+Isi: Laporan Semester + Impor Dapodik + Foto Profil Akun
+Cek wajib sebelum upload: package.json harus mengandung "xlsx" dan src/components/DashboardApp.tsx harus mengandung "Laporan Semester".
+Repo tujuan: ocank/dashboard-sekolah-premium

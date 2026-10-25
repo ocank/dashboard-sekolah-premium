@@ -95,6 +95,14 @@ create table if not exists public.notifications (
   created_at timestamptz not null default now()
 );
 
+-- Foto profil per akun login (disimpan sebagai data URL JPEG kecil
+-- hasil potong persegi 256px di browser — tanpa perlu Storage bucket)
+create table if not exists public.profiles (
+  user_id uuid primary key,
+  photo text not null default '',
+  updated_at timestamptz not null default now()
+);
+
 -- ---------- Row Level Security ----------
 -- Anon / publik TIDAK bisa mengakses apa pun. User login (authenticated)
 -- boleh membaca semua tabel; hak menulis dibedakan per peran
@@ -109,6 +117,22 @@ alter table public.att_sessions enable row level security;
 alter table public.att_records enable row level security;
 alter table public.grades enable row level security;
 alter table public.notifications enable row level security;
+alter table public.profiles enable row level security;
+
+-- Kebijakan khusus profiles: semua user login boleh melihat foto,
+-- tetapi menulis hanya baris miliknya sendiri.
+drop policy if exists "profiles read" on public.profiles;
+create policy "profiles read" on public.profiles
+  for select to authenticated using (true);
+drop policy if exists "profiles insert own" on public.profiles;
+create policy "profiles insert own" on public.profiles
+  for insert to authenticated with check (user_id = auth.uid());
+drop policy if exists "profiles update own" on public.profiles;
+create policy "profiles update own" on public.profiles
+  for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists "profiles delete own" on public.profiles;
+create policy "profiles delete own" on public.profiles
+  for delete to authenticated using (user_id = auth.uid());
 
 -- ---------- Pembagian Peran: Admin vs Guru ----------
 -- Admin : akses penuh ke semua tabel & menu.

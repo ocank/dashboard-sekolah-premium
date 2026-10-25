@@ -1,4 +1,5 @@
-dashboard-sekolah-premium — build 2026-10-24
-Isi: Laporan Semester + Impor Dapodik + Foto Profil Akun
-Cek wajib sebelum upload: package.json harus mengandung "xlsx" dan src/components/DashboardApp.tsx harus mengandung "Laporan Semester".
+dashboard-sekolah-premium — build 2026-10-25
+Isi: Kartu sidebar "Jurnal Hari Ini" diganti menjadi kartu Info Pengembang (tombol WhatsApp + tautan Instagram, bisa diklik). Fitur lain sama dengan build 2026-10-24 (Laporan Semester + Impor Dapodik + Foto Profil Akun).
+Cek wajib sebelum upload: src/components/DashboardApp.tsx harus mengandung "fauzan.dg_manrapi".
 Repo tujuan: ocank/dashboard-sekolah-premium
+Catatan: hanya src/components/DashboardApp.tsx yang berubah dari build sebelumnya.

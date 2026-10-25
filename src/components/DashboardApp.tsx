@@ -249,15 +249,25 @@ export default function DashboardApp() {
           ))}
         </nav>
         <div className="journal-card">
-          <div className="crown">👑</div>
-          <h4>Jurnal Hari Ini</h4>
-          <p>Catat aktivitas KBM kelas dengan cepat &amp; rapi!</p>
-          <button
-            className="btn btn-primary btn-block"
-            onClick={() => setView("jurnal")}
+          <div className="crown">👨‍💻</div>
+          <h4>Info Pengembang</h4>
+          <p>Aplikasi ini dikembangkan oleh Nurfauzan. Ada kendala atau masukan? Hubungi saya:</p>
+          <a
+            className="btn btn-gold btn-block"
+            href="https://wa.me/6282345555534"
+            target="_blank"
+            rel="noreferrer"
           >
-            + Isi Jurnal Cepat
-          </button>
+            📱 WhatsApp • 0823-4555-5534
+          </a>
+          <a
+            href="https://instagram.com/fauzan.dg_manrapi"
+            target="_blank"
+            rel="noreferrer"
+            style={{ display: "block", marginTop: 10, fontSize: 12.5, color: "#e9c979", fontWeight: 600 }}
+          >
+            📸 Instagram • @fauzan.dg_manrapi
+          </a>
         </div>
       </aside>
 

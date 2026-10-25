@@ -261,7 +261,7 @@ export default function DashboardApp() {
             📱 WhatsApp • 0823-4555-5534
           </a>
           <a
-            href="https://instagram.com/fauzan.dg_manrapi"
+            href="https://instagram.com/fauzan_dg.manrapi"
             target="_blank"
             rel="noreferrer"
             style={{ display: "block", marginTop: 10, fontSize: 12.5, color: "#e9c979", fontWeight: 600 }}

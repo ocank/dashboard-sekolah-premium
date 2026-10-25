@@ -248,12 +248,19 @@ td input[type="number"] { width: 76px; padding: 7px 8px; }
 .inline-form > div { flex: 1; min-width: 150px; }
 .att-btns { display: inline-flex; gap: 5px; }
 .att-btns button {
-  width: 34px; height: 34px; border-radius: 9px; border: 1px solid var(--border);
-  background: #fff; cursor: pointer; font-weight: 800; font-size: 13px;
+  width: 34px; height: 34px; border-radius: 9px; border: 1.5px solid var(--border);
+  background: #fff; cursor: pointer; font-weight: 800; font-size: 13px; color: var(--ink);
+  transition: transform .12s ease, box-shadow .12s ease, background .12s ease;
 }
+.att-btns button:hover { transform: translateY(-1px); box-shadow: 0 3px 8px rgba(31, 46, 40, .14); }
+/* kontras tombol absensi v2026-10-25: chip berwarna lembut per status agar huruf selalu terbaca sebelum dipilih */
+.att-btns button:nth-child(1) { background: #e2f1ea; border-color: #9fc9b8; color: #0b5c46; }
+.att-btns button:nth-child(2) { background: #fdf3d3; border-color: #e3cd85; color: #7a5b00; }
+.att-btns button:nth-child(3) { background: #e5eefb; border-color: #aec6ea; color: #2f5b9a; }
+.att-btns button:nth-child(4) { background: #fae9e0; border-color: #e5bda6; color: #9c4a26; }
 .att-btns button.sel-H { background: var(--emerald); color: #fff; border-color: var(--emerald); }
 .att-btns button.sel-S { background: #e9b949; border-color: #e9b949; color: #4c3a05; }
-.att-btns button.sel-I { background: #7ea4d8; border-color: #7ea4d8; color: #fff; }
+.att-btns button.sel-I { background: #5b84c4; border-color: #5b84c4; color: #fff; }
 .att-btns button.sel-A { background: var(--terra); border-color: var(--terra); color: #fff; }
 .summary-bar { display: flex; gap: 14px; flex-wrap: wrap; background: var(--ivory-2); border-radius: 12px; padding: 12px 16px; margin: 14px 0; font-size: 13.5px; font-weight: 600; }
 

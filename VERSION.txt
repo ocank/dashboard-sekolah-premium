@@ -1,5 +1,5 @@
-dashboard-sekolah-premium — build 2026-10-25
-Isi: Kartu sidebar "Jurnal Hari Ini" diganti menjadi kartu Info Pengembang (tombol WhatsApp + tautan Instagram, bisa diklik). Fitur lain sama dengan build 2026-10-24 (Laporan Semester + Impor Dapodik + Foto Profil Akun).
-Cek wajib sebelum upload: src/components/DashboardApp.tsx harus mengandung "fauzan.dg_manrapi".
+dashboard-sekolah-premium — build 2026-10-25 (kontras absensi)
+Isi: Perbaikan kontras tombol status absensi H/S/I/A — sebelum dipilih kini tampil sebagai chip berwarna lembut (hijau/kuning/biru/terracotta) dengan huruf tebal berwarna senada sehingga selalu terbaca; warna terpilih tetap pekat. Termasuk juga kartu Info Pengembang dari build sebelumnya.
+Cek wajib sebelum upload: src/app/globals.css harus mengandung "kontras tombol absensi".
 Repo tujuan: ocank/dashboard-sekolah-premium
-Catatan: hanya src/components/DashboardApp.tsx yang berubah dari build sebelumnya.
+Catatan: hanya src/app/globals.css yang berubah dari build live saat ini.
